@@ -1,0 +1,64 @@
+#! /bin/sh
+
+# utf8 encoding and crlf convert  win<->linux
+# use iconv -f UTF8 -t KOI8-R <file> -o <out file>
+# for koi8r or else...
+# WINDOWS-1251
+
+
+DIR='./BAK'
+
+if [ ! -d $DIR ]
+then
+    mkdir $DIR
+    if [ $? -ne 0 ]
+    then
+        echo 'Cannot create BAK directory'
+        exit 1;
+    fi
+fi
+
+for i in `ls -1 *.cpp`
+do
+    echo 1
+    cp $i $DIR/$i
+# to linux    
+    tr -d '\r' < $i > tmp.utf8
+#    cp $i tmp.utf8	
+#    sed -e 's/\r$//' $i > tmp.utf8
+#to win 
+#    sed -e 's/$/\r/' $i > tmp.utf8
+#    tr '\r' '\n' < $i > tmp.utf8
+    iconv -c -f WINDOWS-1251 -t UTF8 tmp.utf8 -o $i
+    rm tmp.utf8
+done
+
+for i in `ls -1 *.h`
+do
+    echo 1
+    cp $i $DIR/$i
+# to linux    
+    tr -d '\r' < $i > tmp.utf8
+#    cp $i tmp.utf8	
+#    sed -e 's/\r$//' $i > tmp.utf8
+#to win 
+#    sed -e 's/$/\r/' $i > tmp.utf8
+#    tr '\r' '\n' < $i > tmp.utf8
+    iconv -c -f WINDOWS-1251 -t UTF8 tmp.utf8 -o $i
+    rm tmp.utf8
+done
+
+for i in `ls -1 *.c`
+do
+    echo 1
+    cp $i $DIR/$i
+# to linux    
+    tr -d '\r' < $i > tmp.utf8
+#    cp $i tmp.utf8	
+#    sed -e 's/\r$//' $i > tmp.utf8
+#to win 
+#    sed -e 's/$/\r/' $i > tmp.utf8
+#    tr '\r' '\n' < $i > tmp.utf8
+    iconv -c -f WINDOWS-1251 -t UTF8 tmp.utf8 -o $i
+    rm tmp.utf8
+done
