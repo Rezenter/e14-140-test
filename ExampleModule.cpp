@@ -1,5 +1,5 @@
+
 #include "ExampleModule.h"
-#define INITGUID
 
 #include <iostream> //debug purpose only
 
@@ -11,9 +11,6 @@ std::bitset<16> ttlState; //saving RAM)
 
 using namespace std;
 
-/*The next line commented due to my incompetence. I don`t understand, why i get linking errors, 
-when all needed functions are properly overrided. Coresponding header file is modified the same way.
-*/
 FLUG_DYNAMIC_DRIVER(ExampleModule); // Класс регистрируется в качестве модуля, пригодного для использования LabBot
 
 ExampleModule::ExampleModule(const std::string &deviceInstance, const std::string &deviceType) : DeviceDriver(
