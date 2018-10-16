@@ -14,16 +14,16 @@ using namespace std;
 /*The next line commented due to my incompetence. I don`t understand, why i get linking errors, 
 when all needed functions are properly overrided. Coresponding header file is modified the same way.
 */
-//FLUG_DYNAMIC_DRIVER(ExampleModule); // Класс регистрируется в качестве модуля, пригодного для использования LabBot
+FLUG_DYNAMIC_DRIVER(ExampleModule); // Класс регистрируется в качестве модуля, пригодного для использования LabBot
 
-ExampleModule::ExampleModule(const std::string &deviceInstance, const std::string &deviceType)/*: DeviceDriver(
-deviceInstance, deviceType)*/{
+ExampleModule::ExampleModule(const std::string &deviceInstance, const std::string &deviceType) : DeviceDriver(
+deviceInstance, deviceType){
     void* handle;
     char* error;
 
     handle = dlopen("liblcomp.so",RTLD_LAZY);
     if(!handle){
-        throw std::runtime_error("error opening shared object library file: "); //more information in dlerror()
+        throw std::runtime_error("error opening shared object library file"); //more information in dlerror()
     }
     CreateInstance =(CREATEFUNCPTR) dlsym(handle,"CreateInstance");
     if((error = dlerror())!=NULL)
@@ -92,7 +92,6 @@ bool ExampleModule::initModule() { // Подключаемся к устройс
     cout  << "Rev          " << pd.t5.Rev << endl;
     cout  << "Quartz       " << dec << pd.t5.Quartz << endl;
     */
-    srand((unsigned int)time(nullptr)); //this line was in example of working with LabBot. may be srand is essential for LabBot?
     return true;
 }
 
@@ -110,10 +109,10 @@ bool ExampleModule::destroyModule() { // Освобождаем ресурсы, 
     req["subsystem"] = "iDontKnow";
     LabBot::Response unused;
     //req to LabBot::Request convertion needed
-    handleSetData(LabBot::Request , unused);
-    req["reqtype"] = "setDigitalOutputs";
+    handleSetData(LabBot::Request , unused); //set DAC to zero
+    req["reqtype"] = "setDigitalOutputs"; 
     //req to LabBot::Request convertion needed
-    handleSetData(LabBot::Request , unused);
+    handleSetData(LabBot::Request , unused); //set TTL to zero
     */
     
     pI->CloseLDevice(); //may be this step can stuck. check later
@@ -321,8 +320,4 @@ bool ExampleModule::handleFailFunction(LabBot::Request &req, LabBot::Response &r
     throw std::runtime_error("handleFailFunction always fails"); // Строка с описанием ошибки будет аккуратно упакована
                                                                 // и отправлена на клиент в корректной JSON-структуре
                                                                 //no need to return something. it is an emergency termination
-}
-
-void ExampleModule::cyclicFunc (){
-    //unknown, inherited from DeviceDriver with no descrintion
 }

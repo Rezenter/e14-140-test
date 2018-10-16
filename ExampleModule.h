@@ -14,29 +14,24 @@
 #include "include/ifc_ldev.h"
 
 
-class ExampleModule/* : public LabBot::DeviceDriver*/{
+class ExampleModule : public LabBot::DeviceDriver{
 public:
+ExampleModule() = delete;
+    ~ExampleModule() override ;
+    ExampleModule (const std::string & deviceInstance, const std::string & deviceType);
 
-    ExampleModule() = delete;
-    ExampleModule (const std::string & name, const std::string & type);
-    ~ExampleModule ();
+    bool loadConfig (Json::Value & config) override;
+    bool initModule () override;
+    bool destroyModule () override;
+    bool handleRequest (LabBot::Request & req, LabBot::Response & resp) override;
+    bool rebootModule () override;
+    LabBot::Module::State getState() override;
+
     
-    bool loadConfig (Json::Value & config);
-    bool initModule ();
-    
-    bool destroyModule ();
-    bool rebootModule ();
-    
-    bool handleRequest (LabBot::Request & req, LabBot::Response & resp);
-    
-    LabBot::Module::State getState ();
+protected:
     bool handleFailFunction(LabBot::Request &req, LabBot::Response &resp);
     bool handleGetData(LabBot::Request &req, LabBot::Response &resp);
     bool handleSetData(LabBot::Request &req, LabBot::Response &resp);
-    
-    void cyclicFunc ();
-    
-protected:
 private:
 };
 
