@@ -27,9 +27,6 @@ deviceInstance, deviceType){
     {
         throw std::runtime_error(error);
     }
-    if(!initModule()){
-        throw std::runtime_error("initialisation error");
-    }
     ttlState.reset(); //default ttl outputs state is low
 }
 
