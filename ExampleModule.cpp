@@ -1,13 +1,4 @@
-
 #include "ExampleModule.h"
-
-#include <iostream> //debug purpose only
-
-typedef IDaqLDevice* (*CREATEFUNCPTR)(ULONG Slot);
-CREATEFUNCPTR CreateInstance;
-IDaqLDevice* pI;
-std::bitset<16> ttlState; //saving RAM)
-
 
 using namespace std;
 
@@ -15,22 +6,27 @@ FLUG_DYNAMIC_DRIVER(ExampleModule); // Класс регистрируется �
 
 ExampleModule::ExampleModule(const std::string &deviceInstance, const std::string &deviceType) : DeviceDriver(
 deviceInstance, deviceType){
-    void* handle;
-    char* error;
-
     handle = dlopen("liblcomp.so",RTLD_LAZY);
-    if(!handle){
-        throw std::runtime_error("error opening shared object library file"); //more information in dlerror()
+    error = dlerror();
+    if(error != NULL){
+        throw std::runtime_error(error);
     }
-    CreateInstance =(CREATEFUNCPTR) dlsym(handle,"CreateInstance");
-    if((error = dlerror())!=NULL)
-    {
+    if(!handle){
+        throw std::runtime_error("error opening shared object library file"); //may be overkill
+    }
+    CreateInstance = (CREATEFUNCPTR) dlsym(handle,"CreateInstance");
+    error = dlerror();
+    if(error != NULL){
         throw std::runtime_error(error);
     }
     ttlState.reset(); //default ttl outputs state is low
 }
 
 ExampleModule::~ExampleModule(){
+    if(handle){
+        dlclose(handle);
+    }
+    delete error;
     destroyModule();
 }
 
@@ -59,7 +55,6 @@ bool ExampleModule::initModule() { // Подключаемся к устройс
     if(pIUnknown == NULL) { //may be overkill: errno should detect all errors
         throw std::runtime_error("CreateInstance error");
     }
-    
     HRESULT hr = pIUnknown->QueryInterface(IID_ILDEV,(void**)&pI);
     if(hr!=S_OK) {
         throw std::runtime_error("Get IDaqLDevice failed");
@@ -70,7 +65,7 @@ bool ExampleModule::initModule() { // Подключаемся к устройс
     SLOT_PAR sl;
     pI->GetSlotParam(&sl);
     /*
-    if(pI->PlataTest() != L_SUCCESS){ //for e14-140 always returns true
+    if(pI->PlataTest() != L_SUCCESS){ //for e14-140 always returns true, useless
         cout  << "Plata Test failed\n";
         return false;
     }
@@ -93,21 +88,25 @@ bool ExampleModule::destroyModule() { // Освобождаем ресурсы, 
     if(pI == NULL){
         return true; //not created => already destroyed
     }
-    /* //setOutputs to zero
+    //setOutputs to zero
     Json::Value req;
+    req["reqtype"] = "setAnalogOutputs";
+    for (int i = 0; i < 2; ++i) {
+        req["terminals"][i] = i;
+        req["values"][i] = 0;
+    }
+    req["subsystem"] = "e140";
+    Json::Value resp;
+    LabBot::Request analog(req, this);
+    LabBot::Response unused;
+    handleSetData(analog, unused); //set DAC to zero
+    req["reqtype"] = "setDigitalOutputs"; 
     for (int i = 0; i < 16; ++i) {
         req["terminals"][i] = i;
         req["values"][i] = 0;
     }
-    req["reqtype"] = "setAnalogOutputs";
-    req["subsystem"] = "iDontKnow";
-    LabBot::Response unused;
-    //req to LabBot::Request convertion needed
-    handleSetData(LabBot::Request , unused); //set DAC to zero
-    req["reqtype"] = "setDigitalOutputs"; 
-    //req to LabBot::Request convertion needed
-    handleSetData(LabBot::Request , unused); //set TTL to zero
-    */
+    LabBot::Request digital(req, this);
+    handleSetData(digital, unused); //set TTL to zero
     
     pI->CloseLDevice(); //may be this step can stuck. check later
     pI->Release(); //same
@@ -116,12 +115,13 @@ bool ExampleModule::destroyModule() { // Освобождаем ресурсы, 
 
 bool ExampleModule::rebootModule() { // Функция, выполняемая при перезагрузке модуля устройства.
 // Приведена реализация по умолчанию, но может быть реализована произвольная логика
+    //destruction sets all outputs to zero
     return destroyModule() && initModule(); //all errors are handelled in destroy/initialise functions
 }
 
 // Основная функция, вызваемая для обработки запросов
 bool ExampleModule::handleRequest(LabBot::Request &req, LabBot::Response &resp){
-    if(pI == NULL && getState() == LabBot::Module::State::ST_ONLINE){
+    if(pI == NULL && getState() == LabBot::Module::State::ST_ONLINE){ //currently can`t detect usb disconection due to lcomp
         return false; //nothing to do, if device isn`t properly initialised
     }
     if (!req.m_json.isMember("subsystem")) {
@@ -144,7 +144,7 @@ bool ExampleModule::handleRequest(LabBot::Request &req, LabBot::Response &resp){
 }
 
 LabBot::Module::State ExampleModule::getState() { // Используется менеджером устройств
-    if(pI == NULL || pI->PlataTest() != L_SUCCESS){ //for e14-140 PlataTest() always returns true
+    if(pI == NULL || pI->PlataTest() != L_SUCCESS){ //for e14-140 PlataTest() always returns true, can`t detect usb disconnection
         return LabBot::Module::State::ST_OFFLINE;
     }
     return LabBot::Module::State::ST_ONLINE;
@@ -162,22 +162,19 @@ bool ExampleModule::handleGetData(LabBot::Request &req, LabBot::Response &resp){
             //this kind of exeptions was in example, i`d rather return false instead of terminating everything
             throw std::runtime_error("terminals are not specified"); //no need to return something. it is an emergency termination
         }
-        vector<int> terminals;
-        string s;    
-        istringstream inp(req.m_json["terminals"].asString());
-        while(std::getline(inp, s, ',')){
-            int t = stoi(s);
+        for(int i = 0; i < req.m_json["terminals"].size(); ++i){
+            int t = req.m_json["terminals"][i].asInt();
             if(t < 0 || t > 15){ //there are 16 differential analog inputs
                 throw std::runtime_error("terminals are out of bound");
             }
-            terminals.push_back(t); //reading same terminal several times is legal
-        }            
-        for(int i = 0; i < terminals.size(); ++i){ /*as far as i got it, lcomp for linux allows reading/writing only from
+            if(t < 0 || t > 15){ //there are 16 differential analog inputs //reading same terminal several times is legal
+                throw std::runtime_error("terminals are out of bound");
+            }/*as far as i got it, lcomp for linux allows reading/writing only from
             the first element of asyncPar.Data. So i have to access analog pins one by one.*/
             asyncPar.NCh = 1;
             asyncPar.Chn[0] = 0; //clear 
             for(int shift = 0; shift < 4; ++shift){ 
-                asyncPar.Chn[0] += ((terminals.at(i) >> shift)&1) << shift; //ch number, replace i
+                asyncPar.Chn[0] += ((t >> shift)&1) << shift; //ch number, replace i
             }
             asyncPar.Chn[0] += 0 << 4; //zero config
             asyncPar.Chn[0] += 0 << 5; //diff mode
@@ -185,16 +182,14 @@ bool ExampleModule::handleGetData(LabBot::Request &req, LabBot::Response &resp){
             asyncPar.Chn[0] += 0 << 7; //gain 1
             pI->IoAsync(&asyncPar);
             data.push_back(asyncPar.Data[0]);
-        } 
+        }        
     }else{
         if (!req.m_json.isMember("terminals")) {
             throw std::runtime_error("terminals are not specified"); //no need to return something. it is an emergency termination
         }
         vector<int> terminals;
-        string s;    
-        istringstream inp(req.m_json["terminals"].asString());
-        while(std::getline(inp, s, ',')){
-            int t = stoi(s);
+        for(int i = 0; i < req.m_json["terminals"].size(); ++i){
+            int t = req.m_json["terminals"][i].asInt();
             if(t < 0 || t > 15){
                 throw std::runtime_error("terminals are out of bound");
             }
@@ -229,30 +224,27 @@ bool ExampleModule::handleSetData(LabBot::Request &req, LabBot::Response &resp){
             throw std::runtime_error("terminals are not specified"); //no need to return something. it is an emergency termination
         }
         vector<int> terminals;
-        string s;    
-        istringstream inp(req.m_json["terminals"].asString());
-        while(std::getline(inp, s, ',')){
-            int t = stoi(s);
+        for(int i = 0; i < req.m_json["terminals"].size(); ++i){
+            int t = req.m_json["terminals"][i].asInt();
             if(t != 0 && t != 1){
                 throw std::runtime_error("terminals are out of bound");
             }
             terminals.push_back(t); //reading same terminal several times is legal
         }
         vector<int> values;
-        inp = istringstream(req.m_json["values"].asString());
-        while(std::getline(inp, s, ',')){
-            int t = stoi(s);
-            if(t < 0 || t > 4095){
+        for(int i = 0; i < req.m_json["values"].size(); ++i){
+            int v = req.m_json["values"][i].asInt();
+            if(v < 0 || v > 4095){
                 throw std::runtime_error("values are out of bound");
             }
-            values.push_back(t);
+            values.push_back(v);
         }           
         if(values.size() != terminals.size()){
-            throw std::runtime_error("values dont corespond terminals");
+            throw std::runtime_error("values don`t correspond to terminals");
         } 
         for(int i = 0; i < terminals.size(); ++i){
-            asyncPar.Mode = i;
-            asyncPar.Data[0] = values[i];
+            asyncPar.Mode = terminals.at(i);
+            asyncPar.Data[0] = values.at(i);
             pI->IoAsync(&asyncPar);
             
         }
@@ -263,40 +255,36 @@ bool ExampleModule::handleSetData(LabBot::Request &req, LabBot::Response &resp){
         pI->IoAsync(&asyncPar);
 
         if (!req.m_json.isMember("terminals")) {
-            //this kind of exeptions was in example, i`d rather return false instead of terminating everything
             throw std::runtime_error("terminals are not specified"); //no need to return something. it is an emergency termination
         }
         //i like copy-paste code)
         vector<int> terminals;
-        string s;    
-        istringstream inp(req.m_json["terminals"].asString());
-        while(std::getline(inp, s, ',')){
-            int t = stoi(s);
+        for(int i = 0; i < req.m_json["terminals"].size(); ++i){
+            int t = req.m_json["terminals"][i].asInt();
             if(t < 0 || t > 15){
                 throw std::runtime_error("terminals are out of bound");
             }
             terminals.push_back(t); //writing to the same terminal several times is legal, but kinda useless
         }
         vector<int> values;
-        inp = istringstream(req.m_json["values"].asString());
-        while(std::getline(inp, s, ',')){
-            int t = stoi(s);
-            if(t != 0 || t != 1){
+        for(int i = 0; i < req.m_json["values"].size(); ++i){
+            int v = req.m_json["values"][i].asInt();
+            if(v != 0 && v != 1){
                 throw std::runtime_error("values are out of bound");
             }
-            values.push_back(t);
+            values.push_back(v);
         }           
         if(values.size() != terminals.size()){
-            throw std::runtime_error("values dont corespond terminals");
+            throw std::runtime_error("values don`t coreespond to terminals");
         } 
         asyncPar.NCh = 16;
         asyncPar.s_Type = L_ASYNC_TTL_OUT;
         //all not mensioned terminals are leaved in their previous state.
-        for(int i = 0; i < terminals.size(); ++i){//i dont think there are any reasons to use iterators here
-            if(terminals.at(i) == 0){
-                ttlState.reset(i);
+        for(int i = 0; i < values.size(); ++i){
+            if(values.at(i) == 0){
+                ttlState.reset(terminals.at(i));
             }else{
-                ttlState.set(i);
+                ttlState.set(terminals.at(i));
             }
         }
         asyncPar.Data[0] = 0;
